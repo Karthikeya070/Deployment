@@ -57,10 +57,8 @@ st.markdown("Enter pollutant values and select a future date to predict **AQI In
 pm25 = st.number_input("PM2.5 (µg/m³)", value=50.0)
 no = st.number_input("NO (µg/m³)", value=10.0)
 no2 = st.number_input("NO2 (µg/m³)", value=20.0)
-#pred_date = st.date_input("Select date for prediction")
 
 # Predict button
 if st.button("Predict AQI"):
     prediction = stacked_predict(pm25, no, no2)
-    #st.success(f"Predicted AQI for {pred_date}: {prediction:.2f}")
 
