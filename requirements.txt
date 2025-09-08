@@ -6,4 +6,4 @@ statsmodels==0.14.5
 scikit-learn==1.6.1
 numpy
 pandas
-
+tensorflow
