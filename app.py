@@ -50,8 +50,11 @@ def predict_aqi(models, pm25, no, no2):
     input_df = pd.DataFrame([[pm25, no, no2]], columns=['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)'])
     preds = {}
     
-    if models['rf']: preds['RF'] = models['rf'].predict(input_df)[0]
-    else: preds['RF'] = None
+    if models['rf'] is not None:
+     preds['RF'] = models['rf'].predict(input_df)[0]
+    else:
+     preds['RF'] = None
+
     if models['xgb']: preds['XGBoost'] = models['xgb'].predict(input_df)[0]
     else: preds['XGBoost'] = None
     if models['sarima']:
@@ -93,3 +96,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
