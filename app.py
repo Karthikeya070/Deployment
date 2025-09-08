@@ -16,36 +16,41 @@ features = ['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)']
 
 # ----------------- Prediction Function -----------------
 def stacked_predict(pm25, no, no2):
-    # Prepare input DataFrame
-    df = pd.DataFrame([{
-        'PM2.5 (µg/m³)': pm25,
-        'NO (µg/m³)': no,
-        'NO2 (µg/m³)': no2
-    }])
-    df = df[features]
+    import pandas as pd
+    import numpy as np
 
-    # Base model predictions
-    pred1 = rf.predict(df)[0]
-    pred2 = xgb.predict(df)[0]  # Only if XGB was used as base model
-    sarima_input = df.values.astype(np.float32)
-    pred3 = sarima_model.predict(sarima_input)[0][0]
+    # Prepare input for SARIMAX
+    sarima_input = pd.DataFrame(
+        [[pm25, no, no2]],
+        columns=['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)']
+    )
 
-    # Combine predictions for meta-learner
-    stacked_input = [[pred1, pred2, pred3]]
-    final_pred = meta.predict(stacked_input)[0]
+    # SARIMAX prediction
+    pred_sarimax = sarimax_fit.predict(start=len(train), end=len(train), exog=sarima_input)[0]
+
+    # Random Forest prediction
+    pred_rf = rf.predict(sarima_input)[0]
+
+    # Prophet prediction
+    from prophet import Prophet
+    future_date = pd.DataFrame({'ds': [pd.Timestamp.today()]})
+    prophet_pred = prophet_model.predict(future_date)['yhat'].values[0]
+
+    # Stack predictions
+    stacked_input = pd.DataFrame({
+        'sarimax': [pred_sarimax],
+        'rf': [pred_rf],
+        'prophet': [prophet_pred]
+    })
+
+    # Meta-learner prediction
+    final_pred = xgb_meta.predict(stacked_input)[0]
     return final_pred
 
-# ----------------- Streamlit UI -----------------
-st.title("🌍 Air Quality Index Forecasting (Stacked Model)")
-st.markdown("Enter pollutant values to predict **AQI Index**:")
-
-# User inputs
-pm25 = st.number_input("PM2.5 (µg/m³)", value=50.0)
-no = st.number_input("NO (µg/m³)", value=10.0)
-no2 = st.number_input("NO2 (µg/m³)", value=20.0)
 
 # Predict button
 if st.button("Predict AQI"):
     prediction = stacked_predict(pm25, no, no2)
     st.success(f"Predicted AQI: {prediction:.2f}")
+
 
