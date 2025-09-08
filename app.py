@@ -5,7 +5,9 @@ import pandas as pd
 
 import statsmodels.api as sm   # important for SARIMA
 
-sarima = joblib.load("sarima.pkl")
+from tensorflow import keras
+
+model = keras.models.load_model("sarima_model.keras")   # or "sarima_model.h5"
 
 # Load models
 rf = joblib.load("rf.pkl")
