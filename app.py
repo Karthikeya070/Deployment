@@ -1,5 +1,5 @@
 # app.py
-pip install streamlit
+pip install joblib
 import streamlit as st
 import joblib
 import pandas as pd
@@ -32,4 +32,5 @@ if st.button("Predict AQI"):
     prediction = stacked_predict(features)
 
     st.success(f"Predicted AQI: {prediction:.2f}")
+
 
