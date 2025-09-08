@@ -9,7 +9,17 @@ from tensorflow import keras
 rf = joblib.load("rf.pkl")                # Random Forest
 xgb = joblib.load("xgb.pkl")              # XGBoost
 sarima_model = keras.models.load_model("sarima_model.keras")  # Keras SARIMA
-prophet = joblib.load("prophet.pkl")      # Prophet
+# Load models
+rf = joblib.load("rf.pkl")
+xgb = joblib.load("xgb.pkl")
+sarima_model = keras.models.load_model("sarima_model.keras")  # Keras SARIMA
+
+import pickle
+with open("prophet.pkl", "rb") as f:
+    prophet = pickle.load(f)
+
+meta = joblib.load("stacked.pkl")
+
 meta = joblib.load("stacked.pkl")         # Meta stacked model
 
 # ----------------- Prediction Function -----------------
@@ -52,3 +62,4 @@ if st.button("Predict AQI"):
     }
     prediction = stacked_predict(features)
     st.success(f"Predicted AQI: {prediction:.2f}")
+
