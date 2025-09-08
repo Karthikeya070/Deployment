@@ -6,7 +6,7 @@ import numpy as np
 from tensorflow import keras
 
 # ----------------- Load Models -----------------
-rf = joblib.load("rf.pkl")                  # Random Forest
+rf = joblib.load("rf_fixed.pkl")                  # Random Forest
 xgb = joblib.load("xgb.pkl")                # XGBoost (base model if used)
 sarima_model = keras.models.load_model("sarima_model.keras", compile=False)  # Keras SARIMA
 meta = joblib.load("stacked.pkl")           # Meta stacked model
@@ -48,3 +48,4 @@ no2 = st.number_input("NO2 (µg/m³)", value=20.0)
 if st.button("Predict AQI"):
     prediction = stacked_predict(pm25, no, no2)
     st.success(f"Predicted AQI: {prediction:.2f}")
+
