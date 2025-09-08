@@ -1,5 +1,9 @@
-streamlit
-joblib
-scikit-learn
+
 xgboost
-statsmodels
+streamlit
+joblib==1.5.2
+statsmodels==0.14.5
+scikit-learn==1.6.1
+numpy
+pandas
+
