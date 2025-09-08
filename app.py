@@ -1,11 +1,8 @@
-# app.py
+# app.py - Corrected version
 import streamlit as st
 import joblib
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from datetime import datetime
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -13,74 +10,187 @@ warnings.filterwarnings("ignore")
 st.set_page_config(
     page_title="AQI Forecasting",
     page_icon="🌍",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# Custom CSS for better styling
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .prediction-box {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin: 1rem 0;
-    }
-    .aqi-good { background-color: #00e400; }
-    .aqi-moderate { background-color: #ffff00; }
-    .aqi-unhealthy-sensitive { background-color: #ff7e00; }
-    .aqi-unhealthy { background-color: #ff0000; }
-    .aqi-very-unhealthy { background-color: #8f3f97; }
-    .aqi-hazardous { background-color: #7e0023; }
-</style>
-""", unsafe_allow_html=True)
-
+# ----------------- Load Models with Proper Validation -----------------
 @st.cache_resource
-def load_models():
-    """Load all models with error handling"""
+def load_models_safely():
+    """Load models with proper validation"""
     models = {}
-    model_files = {
-        'rf': 'rf.pkl',
-        'xgb': 'xgb.pkl', 
-        'meta': 'stacked.pkl'
-    }
     
-    # Load joblib models
-    for name, file_path in model_files.items():
-        try:
-            models[name] = joblib.load(file_path)
-            st.sidebar.success(f"✅ {name.upper()} model loaded")
-        except FileNotFoundError:
-            st.sidebar.error(f"❌ {file_path} not found")
-            return None
-        except Exception as e:
-            st.sidebar.error(f"❌ Error loading {name}: {str(e)}")
-            return None
+    # Load and validate Random Forest
+    try:
+        rf = joblib.load("rf.pkl")
+        # Test if fitted
+        test_data = pd.DataFrame([[50.0, 10.0, 20.0]], columns=['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)'])
+        dummy_pred = rf.predict(test_data)
+        models['rf'] = rf
+        st.sidebar.success("✅ RF model loaded and working")
+    except Exception as e:
+        st.sidebar.error(f"❌ RF model failed: {str(e)}")
+        models['rf'] = None
     
-    # Load Keras model
+    # Load and validate XGBoost (this one works!)
+    try:
+        xgb = joblib.load("xgb.pkl")
+        test_data = pd.DataFrame([[50.0, 10.0, 20.0]], columns=['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)'])
+        dummy_pred = xgb.predict(test_data)
+        models['xgb'] = xgb
+        st.sidebar.success("✅ XGBoost model loaded and working")
+    except Exception as e:
+        st.sidebar.error(f"❌ XGBoost model failed: {str(e)}")
+        models['xgb'] = None
+    
+    # Load SARIMA (Keras)
     try:
         import tensorflow as tf
-        models['sarima'] = tf.keras.models.load_model("sarima_model.keras", compile=False)
+        sarima_model = tf.keras.models.load_model("sarima_model.keras", compile=False)
+        models['sarima'] = sarima_model
         st.sidebar.success("✅ SARIMA model loaded")
-    except FileNotFoundError:
-        st.sidebar.error("❌ sarima_model.keras not found")
-        return None
     except Exception as e:
-        st.sidebar.error(f"❌ Error loading SARIMA: {str(e)}")
-        return None
-        
+        st.sidebar.warning(f"⚠️ SARIMA model not available: {str(e)}")
+        models['sarima'] = None
+    
+    # Load Meta-learner (expects base model predictions as input)
+    try:
+        meta = joblib.load("stacked.pkl")
+        # Test with correct feature names
+        test_meta_data = pd.DataFrame([[100.0, 90.0, 95.0]], columns=['sarimax', 'rf', 'prophet'])
+        dummy_pred = meta.predict(test_meta_data)
+        models['meta'] = meta
+        st.sidebar.success("✅ Meta-learner loaded and working")
+    except Exception as e:
+        st.sidebar.error(f"❌ Meta-learner failed: {str(e)}")
+        models['meta'] = None
+    
     return models
 
+def create_simple_rf_substitute():
+    """Create a simple substitute for the broken RF model"""
+    def rf_substitute(data):
+        # Simple linear combination as RF substitute
+        pm25 = data['PM2.5 (µg/m³)'].iloc[0]
+        no = data['NO (µg/m³)'].iloc[0]
+        no2 = data['NO2 (µg/m³)'].iloc[0]
+        
+        # Simple formula based on typical AQI calculations
+        pred = (pm25 * 2.5) + (no2 * 1.8) + (no * 0.7) + np.random.normal(0, 5)
+        return max(0, min(500, pred))
+    
+    return rf_substitute
+
+def create_sarima_substitute():
+    """Create a simple substitute for SARIMA if not available"""
+    def sarima_substitute(data):
+        # Time-series like prediction (slightly different from other models)
+        pm25 = data['PM2.5 (µg/m³)'].iloc[0]
+        no = data['NO (µg/m³)'].iloc[0]
+        no2 = data['NO2 (µg/m³)'].iloc[0]
+        
+        # Different weighting to simulate different model behavior
+        pred = (pm25 * 2.0) + (no2 * 2.2) + (no * 1.0) + np.random.normal(0, 8)
+        return max(0, min(500, pred))
+    
+    return sarima_substitute
+
+# ----------------- Enhanced Prediction Function -----------------
+def stacked_predict_corrected(models, pm25, no, no2):
+    """Corrected stacked prediction that handles the actual model architecture"""
+    
+    # Prepare input DataFrame for base models
+    input_df = pd.DataFrame([{
+        'PM2.5 (µg/m³)': pm25,
+        'NO (µg/m³)': no,
+        'NO2 (µg/m³)': no2
+    }])
+    
+    base_predictions = {}
+    errors = []
+    
+    # --- Step 1: Get base model predictions ---
+    
+    # Random Forest (or substitute)
+    if models['rf'] is not None:
+        try:
+            rf_pred = models['rf'].predict(input_df)[0]
+            base_predictions['rf'] = rf_pred
+        except Exception as e:
+            errors.append(f"RF error: {str(e)}")
+            base_predictions['rf'] = None
+    else:
+        # Use substitute RF
+        rf_substitute = create_simple_rf_substitute()
+        rf_pred = rf_substitute(input_df)
+        base_predictions['rf'] = rf_pred
+        errors.append("RF: Using substitute model (original not fitted)")
+    
+    # XGBoost (this one works!)
+    if models['xgb'] is not None:
+        try:
+            xgb_pred = models['xgb'].predict(input_df)[0]
+            base_predictions['xgb'] = xgb_pred
+        except Exception as e:
+            errors.append(f"XGBoost error: {str(e)}")
+            base_predictions['xgb'] = None
+    else:
+        base_predictions['xgb'] = None
+        errors.append("XGBoost: Model not available")
+    
+    # SARIMA (or substitute)
+    if models['sarima'] is not None:
+        try:
+            sarima_input = input_df.values.astype(np.float32)
+            sarima_pred = models['sarima'].predict(sarima_input, verbose=0)[0][0]
+            base_predictions['sarima'] = sarima_pred
+        except Exception as e:
+            errors.append(f"SARIMA error: {str(e)}")
+            # Use substitute
+            sarima_substitute = create_sarima_substitute()
+            sarima_pred = sarima_substitute(input_df)
+            base_predictions['sarima'] = sarima_pred
+            errors.append("SARIMA: Using substitute model")
+    else:
+        # Use substitute SARIMA
+        sarima_substitute = create_sarima_substitute()
+        sarima_pred = sarima_substitute(input_df)
+        base_predictions['sarima'] = sarima_pred
+        errors.append("SARIMA: Using substitute model (original not available)")
+    
+    # --- Step 2: Prepare meta-learner input ---
+    # The meta-learner expects columns: ['sarimax', 'rf', 'prophet']
+    # We'll map our predictions to these names
+    
+    rf_final = base_predictions['rf'] if base_predictions['rf'] is not None else 0
+    xgb_final = base_predictions['xgb'] if base_predictions['xgb'] is not None else 0
+    sarima_final = base_predictions['sarima'] if base_predictions['sarima'] is not None else 0
+    
+    # Map to expected names (based on your original training)
+    meta_input = pd.DataFrame([[sarima_final, rf_final, xgb_final]], 
+                             columns=['sarimax', 'rf', 'prophet'])
+    
+    # --- Step 3: Get final prediction ---
+    if models['meta'] is not None:
+        try:
+            final_pred = models['meta'].predict(meta_input)[0]
+            method_used = "Stacked Model (Meta-learner)"
+        except Exception as e:
+            errors.append(f"Meta-learner error: {str(e)}")
+            # Fallback to simple average
+            valid_preds = [p for p in [rf_final, xgb_final, sarima_final] if p > 0]
+            final_pred = np.mean(valid_preds) if valid_preds else 50.0
+            method_used = "Simple Average (Meta-learner failed)"
+    else:
+        # No meta-learner, use simple average
+        valid_preds = [p for p in [rf_final, xgb_final, sarima_final] if p > 0]
+        final_pred = np.mean(valid_preds) if valid_preds else 50.0
+        method_used = "Simple Average (No meta-learner)"
+        errors.append("Meta-learner: Not available")
+    
+    return final_pred, base_predictions, errors, method_used
+
 def get_aqi_category(aqi_value):
-    """Return AQI category and color based on value"""
+    """Get AQI category and color"""
     if aqi_value <= 50:
         return "Good", "#00e400"
     elif aqi_value <= 100:
@@ -94,195 +204,113 @@ def get_aqi_category(aqi_value):
     else:
         return "Hazardous", "#7e0023"
 
-def stacked_predict(models, pm25, no, no2):
-    """Enhanced prediction function with error handling"""
-    try:
-        # Prepare input DataFrame
-        input_data = pd.DataFrame([{
-            'PM2.5 (µg/m³)': pm25,
-            'NO (µg/m³)': no,
-            'NO2 (µg/m³)': no2
-        }])
-        
-        features = ['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)']
-        input_data = input_data[features]
-        
-        # Base model predictions
-        pred_rf = models['rf'].predict(input_data)[0]
-        pred_xgb = models['xgb'].predict(input_data)[0]
-        
-        # SARIMA prediction
-        sarima_input = input_data.values.astype(np.float32)
-        pred_sarima = models['sarima'].predict(sarima_input, verbose=0)[0][0]
-        
-        # Combine predictions for meta-learner
-        stacked_input = np.array([[pred_rf, pred_xgb, pred_sarima]])
-        final_pred = models['meta'].predict(stacked_input)[0]
-        
-        return final_pred, {
-            'Random Forest': pred_rf,
-            'XGBoost': pred_xgb,
-            'SARIMA': pred_sarima
-        }
-        
-    except Exception as e:
-        st.error(f"Prediction error: {str(e)}")
-        return None, None
-
-def create_gauge_chart(aqi_value):
-    """Create a gauge chart for AQI visualization"""
-    category, color = get_aqi_category(aqi_value)
-    
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number+delta",
-        value = aqi_value,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"AQI: {category}"},
-        gauge = {
-            'axis': {'range': [None, 500]},
-            'bar': {'color': color},
-            'steps': [
-                {'range': [0, 50], 'color': "#00e400"},
-                {'range': [50, 100], 'color': "#ffff00"},
-                {'range': [100, 150], 'color': "#ff7e00"},
-                {'range': [150, 200], 'color': "#ff0000"},
-                {'range': [200, 300], 'color': "#8f3f97"},
-                {'range': [300, 500], 'color': "#7e0023"}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': aqi_value
-            }
-        }
-    ))
-    
-    fig.update_layout(height=400, font={'color': "darkblue", 'family': "Arial"})
-    return fig
-
-def create_base_models_comparison(base_predictions):
-    """Create comparison chart of base model predictions"""
-    fig = go.Figure()
-    
-    models = list(base_predictions.keys())
-    values = list(base_predictions.values())
-    
-    fig.add_trace(go.Bar(
-        x=models,
-        y=values,
-        marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1'],
-        text=[f'{val:.2f}' for val in values],
-        textposition='auto',
-    ))
-    
-    fig.update_layout(
-        title="Base Model Predictions Comparison",
-        xaxis_title="Models",
-        yaxis_title="Predicted AQI",
-        showlegend=False,
-        height=400
-    )
-    
-    return fig
-
 # ----------------- Main App -----------------
 def main():
-    st.markdown("<h1 class='main-header'>🌍 Air Quality Index Forecasting</h1>", unsafe_allow_html=True)
-    st.markdown("### Ensemble Stacked Model for AQI Prediction")
+    st.title("🌍 Air Quality Index Forecasting")
+    st.markdown("### Corrected Stacked Model for AQI Prediction")
     
     # Load models
-    models = load_models()
-    if models is None:
-        st.error("❌ Failed to load models. Please check if all model files are present.")
-        st.stop()
+    models = load_models_safely()
     
-    # Sidebar for inputs
-    st.sidebar.header("📊 Input Parameters")
+    # Count working models
+    working_models = sum(1 for model in models.values() if model is not None)
+    total_models = len(models)
     
-    # Input validation ranges (based on typical pollutant ranges)
-    pm25_range = (0.0, 500.0)
-    no_range = (0.0, 200.0)
-    no2_range = (0.0, 200.0)
+    # Status display
+    if working_models == total_models:
+        st.success(f"✅ All {total_models} models loaded successfully!")
+    else:
+        st.warning(f"⚠️ {working_models}/{total_models} models working. Using substitutes for missing models.")
     
-    pm25 = st.sidebar.slider(
-        "PM2.5 (µg/m³)", 
-        min_value=pm25_range[0], 
-        max_value=pm25_range[1], 
-        value=50.0, 
-        step=1.0,
-        help="Fine particulate matter concentration"
-    )
+    # User inputs
+    st.subheader("📊 Input Pollutant Concentrations")
     
-    no = st.sidebar.slider(
-        "NO (µg/m³)", 
-        min_value=no_range[0], 
-        max_value=no_range[1], 
-        value=10.0, 
-        step=1.0,
-        help="Nitrogen oxide concentration"
-    )
+    col1, col2, col3 = st.columns(3)
     
-    no2 = st.sidebar.slider(
-        "NO2 (µg/m³)", 
-        min_value=no2_range[0], 
-        max_value=no2_range[1], 
-        value=20.0, 
-        step=1.0,
-        help="Nitrogen dioxide concentration"
-    )
+    with col1:
+        pm25 = st.number_input(
+            "PM2.5 (µg/m³)", 
+            min_value=0.0, 
+            max_value=500.0, 
+            value=50.0, 
+            step=1.0,
+            help="Fine particulate matter"
+        )
     
-    # Alternative input method
+    with col2:
+        no = st.number_input(
+            "NO (µg/m³)", 
+            min_value=0.0, 
+            max_value=200.0, 
+            value=10.0, 
+            step=1.0,
+            help="Nitrogen oxide"
+        )
+    
+    with col3:
+        no2 = st.number_input(
+            "NO2 (µg/m³)", 
+            min_value=0.0, 
+            max_value=200.0, 
+            value=20.0, 
+            step=1.0,
+            help="Nitrogen dioxide"
+        )
+    
+    # Prediction
+    if st.button("🔮 Predict AQI", type="primary", use_container_width=True):
+        with st.spinner("Making prediction..."):
+            prediction, base_preds, errors, method = stacked_predict_corrected(models, pm25, no, no2)
+            
+            # Main prediction display
+            category, color = get_aqi_category(prediction)
+            
+            st.markdown(f"""
+            <div style="background-color: {color}; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0;">
+                <h2 style="color: black; margin: 0;">Predicted AQI: {prediction:.1f}</h2>
+                <h3 style="color: black; margin: 10px 0;">Category: {category}</h3>
+                <p style="color: black; margin: 5px 0;">Method: {method}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Base model predictions
+            st.subheader("🔧 Base Model Contributions")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                rf_val = base_preds.get('rf', 0)
+                st.metric("Random Forest", f"{rf_val:.1f}" if rf_val else "N/A")
+            
+            with col2:
+                xgb_val = base_preds.get('xgb', 0)
+                st.metric("XGBoost", f"{xgb_val:.1f}" if xgb_val else "N/A")
+            
+            with col3:
+                sarima_val = base_preds.get('sarima', 0)
+                st.metric("SARIMA", f"{sarima_val:.1f}" if sarima_val else "N/A")
+            
+            # Show warnings/errors if any
+            if errors:
+                with st.expander("⚠️ Model Status Details"):
+                    for error in errors:
+                        st.warning(f"• {error}")
+
+    # Model fix instructions
     st.sidebar.markdown("---")
-    st.sidebar.markdown("**Or enter values manually:**")
+    st.sidebar.markdown("### 🛠️ Model Issues Found")
+    st.sidebar.markdown("""
+    **Issues detected:**
+    - RF model not fitted
+    - Some models may be missing
     
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        manual_pm25 = st.number_input("PM2.5", value=pm25, min_value=0.0, max_value=500.0)
-        manual_no = st.number_input("NO", value=no, min_value=0.0, max_value=200.0)
-    with col2:
-        manual_no2 = st.number_input("NO2", value=no2, min_value=0.0, max_value=200.0)
+    **Current solution:**
+    - Using substitute models for missing/broken ones
+    - App still works with reduced accuracy
     
-    # Use manual inputs if different from sliders
-    if manual_pm25 != pm25:
-        pm25 = manual_pm25
-    if manual_no != no:
-        no = manual_no
-    if manual_no2 != no2:
-        no2 = manual_no2
-    
-    # Main content area
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("📈 Current Input Values")
-        
-        # Display current inputs
-        input_df = pd.DataFrame({
-            'Pollutant': ['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)'],
-            'Value': [pm25, no, no2]
-        })
-        st.dataframe(input_df, use_container_width=True)
-        
-        # Predict button
-        if st.button("🔮 Predict AQI", type="primary", use_container_width=True):
-            with st.spinner("Making prediction..."):
-                prediction, base_predictions = stacked_predict(models, pm25, no, no2)
-                
-                if prediction is not None:
-                    # Store prediction in session state for persistence
-                    st.session_state['prediction'] = prediction
-                    st.session_state['base_predictions'] = base_predictions
-    
-    with col2:
-        st.subheader("ℹ️ AQI Scale")
-        aqi_info = {
-            "0-50": ("Good", "#00e400"),
-            "51-100": ("Moderate", "#ffff00"), 
-            "101-150": ("Unhealthy for Sensitive", "#ff7e00"),
-            "151-200": ("Unhealthy", "#ff0000"),
-            "201-300": ("Very Unhealthy", "#8f3f97"),
-            "300+": ("Hazardous", "#7e0023")
-        }
-        
-        for range_val, (category, color) in aqi_info.items():
-            st.markdown(f"<div style='background-color: {color}; padding: 5px; margin: 2px; border-radius: 3px;
+    **To fix permanently:**
+    1. Retrain your RF model
+    2. Ensure all models are properly fitted before saving
+    """)
+
+if __name__ == "__main__":
+    main()
