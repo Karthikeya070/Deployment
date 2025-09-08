@@ -3,6 +3,10 @@ import streamlit as st
 import joblib
 import pandas as pd
 
+import statsmodels.api as sm   # important for SARIMA
+
+sarima = joblib.load("sarima.pkl")
+
 # Load models
 rf = joblib.load("rf.pkl")
 xgb = joblib.load("xgb.pkl")
@@ -31,6 +35,7 @@ if st.button("Predict AQI"):
     prediction = stacked_predict(features)
 
     st.success(f"Predicted AQI: {prediction:.2f}")
+
 
 
 
