@@ -18,8 +18,6 @@ import pickle
 with open("prophet.pkl", "rb") as f:
     prophet = pickle.load(f)
 
-meta = joblib.load("stacked.pkl")
-
 meta = joblib.load("stacked.pkl")         # Meta stacked model
 
 # ----------------- Prediction Function -----------------
@@ -62,4 +60,5 @@ if st.button("Predict AQI"):
     }
     prediction = stacked_predict(features)
     st.success(f"Predicted AQI: {prediction:.2f}")
+
 
