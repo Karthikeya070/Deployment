@@ -16,15 +16,18 @@ with open("prophet_model.pkl", "rb") as f:
 
 meta = joblib.load("stacked.pkl")         # Meta stacked model
 
+# ----------------- Feature names -----------------
+features = ['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)']
+
 # ----------------- Prediction Function -----------------
 def stacked_predict(pm25, no, no2, pred_date):
-    # Create DataFrame for base models
+    # Prepare input DataFrame with correct column names & order
     df = pd.DataFrame([{
-        "PM2.5": pm25,
-        "NO": no,
-        "NO2": no2
+        'PM2.5 (µg/m³)': pm25,
+        'NO (µg/m³)': no,
+        'NO2 (µg/m³)': no2
     }])
-    df = df[rf.feature_names_in_]  # Ensure correct column order
+    df = df[features]
 
     # Base model predictions
     pred1 = rf.predict(df)[0]
@@ -32,18 +35,17 @@ def stacked_predict(pm25, no, no2, pred_date):
 
     # Keras SARIMA prediction
     sarima_input = df.values.astype(np.float32)
-    pred3 = sarima_model.predict(sarima_input)[0][0]  # assuming single output
+    pred3 = sarima_model.predict(sarima_input)[0][0]
 
     # Prophet prediction for the selected date
-    future = prophet.make_future_dataframe(periods=(pred_date - prophet.history['ds'].max()).days)
-    # Merge regressors if Prophet was trained with them
-    future.loc[future['ds'] == pred_date, 'PM2.5'] = pm25
-    future.loc[future['ds'] == pred_date, 'NO'] = no
-    future.loc[future['ds'] == pred_date, 'NO2'] = no2
+    future = prophet.make_future_dataframe(periods=(pd.Timestamp(pred_date) - prophet.history['ds'].max()).days)
+    # If Prophet was trained with regressors, fill them
+    for col, val in zip(features, [pm25, no, no2]):
+        future.loc[future['ds'] == pd.Timestamp(pred_date), col] = val
     forecast = prophet.predict(future)
-    pred4 = forecast.loc[forecast['ds'] == pred_date, 'yhat'].values[0]
+    pred4 = forecast.loc[forecast['ds'] == pd.Timestamp(pred_date), 'yhat'].values[0]
 
-    # Combine predictions for meta learner
+    # Combine predictions for meta-learner
     stacked_input = [[pred1, pred2, pred3, pred4]]
     return meta.predict(stacked_input)[0]
 
@@ -51,14 +53,13 @@ def stacked_predict(pm25, no, no2, pred_date):
 st.title("🌍 Air Quality Index Forecasting (Stacked Model)")
 st.markdown("Enter pollutant values and select a future date to predict **AQI Index**:")
 
-# Input features
+# User inputs
 pm25 = st.number_input("PM2.5 (µg/m³)", value=50.0)
 no = st.number_input("NO (µg/m³)", value=10.0)
 no2 = st.number_input("NO2 (µg/m³)", value=20.0)
-
-# Calendar date picker
 pred_date = st.date_input("Select date for prediction")
 
+# Predict button
 if st.button("Predict AQI"):
-    prediction = stacked_predict(pm25, no, no2, pd.Timestamp(pred_date))
+    prediction = stacked_predict(pm25, no, no2, pred_date)
     st.success(f"Predicted AQI for {pred_date}: {prediction:.2f}")
