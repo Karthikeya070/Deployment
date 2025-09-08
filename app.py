@@ -1,4 +1,5 @@
 # app.py
+!pip install streamlit
 import streamlit as st
 import joblib
 import pandas as pd
@@ -29,4 +30,5 @@ humidity = st.number_input("Humidity", value=60.0)
 if st.button("Predict AQI"):
     features = {"temp": temp, "humidity": humidity}
     prediction = stacked_predict(features)
+
     st.success(f"Predicted AQI: {prediction:.2f}")
