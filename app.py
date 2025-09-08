@@ -2,42 +2,53 @@
 import streamlit as st
 import joblib
 import pandas as pd
-
-import statsmodels.api as sm   # important for SARIMA
-
+import numpy as np
 from tensorflow import keras
 
-model = keras.models.load_model("sarima_model.keras")   # or "sarima_model.h5"
+# ----------------- Load Models -----------------
+rf = joblib.load("rf.pkl")                # Random Forest
+xgb = joblib.load("xgb.pkl")              # XGBoost
+sarima_model = keras.models.load_model("sarima_model.keras")  # Keras SARIMA
+prophet = joblib.load("prophet.pkl")      # Prophet
+meta = joblib.load("stacked.pkl")         # Meta stacked model
 
-# Load models
-rf = joblib.load("rf.pkl")
-xgb = joblib.load("xgb.pkl")
-sarima = joblib.load("sarima.pkl")
-prophet = joblib.load("prophet.pkl")
-meta = joblib.load("stacked.pkl")
-
+# ----------------- Prediction Function -----------------
 def stacked_predict(features):
     df = pd.DataFrame([features])
+    
+    # Base model predictions
     pred1 = rf.predict(df)[0]
     pred2 = xgb.predict(df)[0]
-    pred3 = sarima.forecast(steps=1)[0]
-    pred4 = prophet.predict(df)[0]
+    
+    # Keras SARIMA expects a 2D array
+    sarima_input = df.values.astype(np.float32)
+    pred3 = sarima_model.predict(sarima_input)[0][0]  # assuming single output
+    
+    # Prophet: forecast next step
+    # Prophet requires a DataFrame with 'ds' column (dates)
+    # We'll assume it's trained to use a 'y' column, so we just predict next step
+    future = prophet.make_future_dataframe(periods=1)
+    forecast = prophet.predict(future)
+    pred4 = forecast['yhat'].iloc[-1]
+    
+    # Combine into meta model input
     stacked_input = [[pred1, pred2, pred3, pred4]]
     return meta.predict(stacked_input)[0]
 
-# Streamlit UI
+# ----------------- Streamlit UI -----------------
 st.title("🌍 Air Quality Index Forecasting (Stacked Model)")
+st.markdown("Enter pollutant values to predict **AQI Index**:")
 
-# Example inputs (adapt to your dataset features)
-temp = st.number_input("Temperature", value=30.0)
-humidity = st.number_input("Humidity", value=60.0)
+# Input features
+pm25 = st.number_input("PM2.5 (µg/m³)", value=50.0)
+no = st.number_input("NO (µg/m³)", value=10.0)
+no2 = st.number_input("NO2 (µg/m³)", value=20.0)
 
 if st.button("Predict AQI"):
-    features = {"temp": temp, "humidity": humidity}
+    features = {
+        "PM2.5 (µg/m³)": pm25,
+        "NO (µg/m³)": no,
+        "NO2 (µg/m³)": no2
+    }
     prediction = stacked_predict(features)
-
     st.success(f"Predicted AQI: {prediction:.2f}")
-
-
-
-
