@@ -15,7 +15,7 @@ xgb = joblib.load("xgb.pkl")
 sarima_model = keras.models.load_model("sarima_model.keras")  # Keras SARIMA
 
 import pickle
-with open("prophet.pkl", "rb") as f:
+with open("prophet_model.pkl", "rb") as f:
     prophet = pickle.load(f)
 
 meta = joblib.load("stacked.pkl")         # Meta stacked model
@@ -60,5 +60,6 @@ if st.button("Predict AQI"):
     }
     prediction = stacked_predict(features)
     st.success(f"Predicted AQI: {prediction:.2f}")
+
 
 
