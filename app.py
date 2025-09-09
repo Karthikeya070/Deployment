@@ -1,4 +1,4 @@
-# app.py - AQI Forecasting with RF, XGB, tiny SARIMAX, Prophet
+# app.py - AQI Forecasting with RF, XGB, SARIMAX, Prophet
 import streamlit as st
 import joblib
 import pandas as pd
@@ -53,17 +53,6 @@ def load_models():
 
     return models
 
-# ----------------- Create SARIMAXResults dynamically from tiny model -----------------
-def create_sarimax_model(params, order, seasonal_order, trend, input_exog):
-    # placeholder endog to match length of exog
-    model = SARIMAX(endog=[0]*len(input_exog),
-                    order=order,
-                    seasonal_order=seasonal_order,
-                    trend=trend,
-                    exog=input_exog)
-    res = model.filter(params)
-    return res
-
 # ----------------- AQI Category -----------------
 def get_aqi_category(aqi):
     if aqi <= 50: return "Good", "#00e400"
@@ -73,8 +62,26 @@ def get_aqi_category(aqi):
     elif aqi <= 300: return "Very Unhealthy", "#8f3f97"
     else: return "Hazardous", "#7e0023"
 
+# ----------------- SARIMAX Forecast -----------------
+def sarimax_forecast(sarimax_small, last_endog, input_df):
+    """
+    sarimax_small: dict with params/order/seasonal_order/trend/exog_names
+    last_endog: pd.Series of last N AQI values (to initialize states)
+    input_df: user input exog (1 row)
+    """
+    model = SARIMAX(
+        endog=last_endog,
+        order=sarimax_small['order'],
+        seasonal_order=sarimax_small['seasonal_order'],
+        trend=sarimax_small['trend'],
+        exog=input_df
+    )
+    model_fit = model.filter(sarimax_small['params'])
+    forecast = model_fit.get_forecast(steps=1, exog=input_df).predicted_mean.iloc[0]
+    return forecast
+
 # ----------------- Prediction -----------------
-def predict_aqi(models, pm25, no, no2):
+def predict_aqi(models, pm25, no, no2, last_endog=None):
     input_df = pd.DataFrame([[pm25, no, no2]],
                             columns=['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)'])
     preds = {}
@@ -86,16 +93,9 @@ def predict_aqi(models, pm25, no, no2):
     preds['XGBoost'] = models['xgb'].predict(input_df)[0] if models['xgb'] else None
 
     # SARIMAX tiny
-    if models.get('sarima_small'):
+    if models.get('sarima_small') and last_endog is not None:
         try:
-            sarima_model = create_sarimax_model(
-                params=models['sarima_small']['params'],
-                order=models['sarima_small']['order'],
-                seasonal_order=models['sarima_small']['seasonal_order'],
-                trend=models['sarima_small']['trend'],
-                input_exog=input_df
-            )
-            preds['SARIMA'] = sarima_model.get_forecast(steps=1, exog=input_df).predicted_mean.iloc[0]
+            preds['SARIMA'] = sarimax_forecast(models['sarima_small'], last_endog, input_df)
         except:
             preds['SARIMA'] = None
     else:
@@ -128,8 +128,17 @@ def main():
     with col2: no = st.number_input("NO (µg/m³)", 0.0, 200.0, 10.0)
     with col3: no2 = st.number_input("NO2 (µg/m³)", 0.0, 200.0, 20.0)
 
+    # Load last 12 AQI observations from GitHub Excel
+    last_endog = None
+    try:
+        url = "https://raw.githubusercontent.com/Karthikeya070/Deployment/main/AQI.xlsx"
+        df_last = pd.read_excel(url)
+        last_endog = df_last['AQI Index'].iloc[-12:]  # last seasonal cycle
+    except:
+        st.warning("⚠️ Could not load last AQI observations for SARIMA. SARIMA predictions may be NA.")
+
     if st.button("🔮 Predict AQI"):
-        prediction, base_preds = predict_aqi(models, pm25, no, no2)
+        prediction, base_preds = predict_aqi(models, pm25, no, no2, last_endog=last_endog)
         category, color = get_aqi_category(prediction)
 
         st.markdown(f"""
