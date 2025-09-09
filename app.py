@@ -66,17 +66,17 @@ def predict_aqi(models, pm25, no, no2):
     # XGBoost
     preds['XGBoost'] = models['xgb'].predict(input_df)[0] if models['xgb'] else None
     
-   if models['sarima']:
-    try:
-        preds['SARIMA'] = models['sarima'].get_forecast(steps=1).predicted_mean.iloc[0]
-    except:
+    # SARIMA (forecast one step ahead with fallback)
+    if models['sarima']:
         try:
-            preds['SARIMA'] = models['sarima'].fittedvalues.iloc[-1]  # fallback
+            preds['SARIMA'] = models['sarima'].get_forecast(steps=1).predicted_mean.iloc[0]
         except:
-            preds['SARIMA'] = None
-   else:
-    preds['SARIMA'] = None
-
+            try:
+                preds['SARIMA'] = models['sarima'].fittedvalues.iloc[-1]
+            except:
+                preds['SARIMA'] = None
+    else:
+        preds['SARIMA'] = None
 
     # Prophet (forecast next timestamp)
     if models['prophet']:
@@ -119,4 +119,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
