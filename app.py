@@ -68,10 +68,13 @@ def predict_aqi(models, pm25, no, no2):
     
     # SARIMA (forecast one step ahead)
     if models['sarima']:
-        preds['SARIMA'] = models['sarima'].forecast(steps=1)[0]
+        try:
+            preds['SARIMA'] = models['sarima'].get_forecast(steps=1).predicted_mean.iloc[0]
+        except:
+            preds['SARIMA'] = None
     else:
         preds['SARIMA'] = None
-    
+
     # Prophet (forecast next timestamp)
     if models['prophet']:
         future = pd.DataFrame({'ds': [pd.Timestamp.today()]})
