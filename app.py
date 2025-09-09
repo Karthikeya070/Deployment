@@ -6,6 +6,8 @@ import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
 
+from statsmodels.tsa.statespace.sarimax import SARIMAXResults
+
 st.set_page_config(page_title="AQI Forecasting", page_icon="🌍", layout="wide")
 
 # ----------------- Load Models -----------------
@@ -27,8 +29,7 @@ def load_models():
         st.sidebar.error("❌ XGBoost not loaded")
     
     try:
-        import tensorflow as tf
-        models['sarima'] = tf.keras.models.load_model("sarima_model.keras", compile=False)
+        models['sarima'] = SARIMAXResults.load("sarimax_model.pkl")
         st.sidebar.success("✅ SARIMA loaded")
     except:
         models['sarima'] = None
@@ -47,20 +48,24 @@ def get_aqi_category(aqi):
 
 # ----------------- Prediction -----------------
 def predict_aqi(models, pm25, no, no2):
-    input_df = pd.DataFrame([[pm25, no, no2]], columns=['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)'])
+    input_df = pd.DataFrame([[pm25, no, no2]], 
+                            columns=['PM2.5 (µg/m³)', 'NO (µg/m³)', 'NO2 (µg/m³)'])
     preds = {}
     
     if models['rf'] is not None:
-     preds['RF'] = models['rf'].predict(input_df)[0]
+        preds['RF'] = models['rf'].predict(input_df)[0]
     else:
-     preds['RF'] = None
+        preds['RF'] = None
 
-    if models['xgb']: preds['XGBoost'] = models['xgb'].predict(input_df)[0]
-    else: preds['XGBoost'] = None
-    if models['sarima']:
-        sarima_input = input_df.values.astype(np.float32)
-        preds['SARIMA'] = models['sarima'].predict(sarima_input, verbose=0)[0][0]
-    else: preds['SARIMA'] = None
+    if models['xgb'] is not None:
+        preds['XGBoost'] = models['xgb'].predict(input_df)[0]
+    else:
+        preds['XGBoost'] = None
+
+    if models['sarima'] is not None:
+        preds['SARIMA'] = models['sarima'].forecast(steps=1)[0]
+    else:
+        preds['SARIMA'] = None
     
     # Final prediction: average of available models
     valid_preds = [v for v in preds.values() if v is not None]
@@ -92,8 +97,7 @@ def main():
         
         st.subheader("🔧 Base Model Predictions")
         for name, val in base_preds.items():
-            st.metric(name, f"{val:.1f}" if val else "N/A")
+            st.metric(name, f"{val:.1f}" if val is not None else "N/A")
 
 if __name__ == "__main__":
     main()
-
