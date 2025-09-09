@@ -1,4 +1,4 @@
-# app.py - AQI Forecasting with RF, XGB, SARIMA (.pkl.gz), Prophet
+# app.py - AQI Forecasting with RF, XGB, SARIMA (.pkl.gz), Prophet (.pkl)
 import streamlit as st
 import joblib
 import pandas as pd
@@ -6,8 +6,6 @@ import numpy as np
 import warnings
 import gzip, pickle
 warnings.filterwarnings("ignore")
-
-from prophet.serialize import model_from_json
 
 st.set_page_config(page_title="AQI Forecasting", page_icon="🌍", layout="wide")
 
@@ -38,8 +36,8 @@ def load_models():
         st.sidebar.warning("⚠️ SARIMA not loaded")
     
     try:
-        with open("prophet_model.json", "r") as fin:
-            models['prophet'] = model_from_json(fin.read())
+        with open("prophet_model.pkl", "rb") as f:
+            models['prophet'] = pickle.load(f)
         st.sidebar.success("✅ Prophet loaded")
     except:
         models['prophet'] = None
@@ -68,13 +66,13 @@ def predict_aqi(models, pm25, no, no2):
     # XGBoost
     preds['XGBoost'] = models['xgb'].predict(input_df)[0] if models['xgb'] else None
     
-    # SARIMA (time-series forecast)
+    # SARIMA (forecast one step ahead)
     if models['sarima']:
         preds['SARIMA'] = models['sarima'].forecast(steps=1)[0]
     else:
         preds['SARIMA'] = None
     
-    # Prophet (forecast one step ahead)
+    # Prophet (forecast next timestamp)
     if models['prophet']:
         future = pd.DataFrame({'ds': [pd.Timestamp.today()]})
         preds['Prophet'] = models['prophet'].predict(future)['yhat'].values[0]
