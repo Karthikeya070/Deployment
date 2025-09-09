@@ -1,4 +1,4 @@
-# app.py - AQI Forecasting with RF, XGB, SARIMA (.pkl.gz), Prophet (.pkl)
+# app.py - AQI Forecasting with RF, XGB, SARIMAX (with exog), Prophet
 import streamlit as st
 import joblib
 import pandas as pd
@@ -13,6 +13,7 @@ st.set_page_config(page_title="AQI Forecasting", page_icon="🌍", layout="wide"
 @st.cache_resource
 def load_models():
     models = {}
+    # Random Forest
     try:
         models['rf'] = joblib.load("rf.pkl")
         st.sidebar.success("✅ RF loaded")
@@ -20,6 +21,7 @@ def load_models():
         models['rf'] = None
         st.sidebar.error("❌ RF not loaded")
     
+    # XGBoost
     try:
         models['xgb'] = joblib.load("xgb.pkl")
         st.sidebar.success("✅ XGBoost loaded")
@@ -27,14 +29,17 @@ def load_models():
         models['xgb'] = None
         st.sidebar.error("❌ XGBoost not loaded")
     
+    # SARIMAX
     try:
-        with gzip.open("sarimax.pkl.gz", "rb") as f:
+        from statsmodels.tsa.statespace.sarimax import SARIMAXResults
+        with gzip.open("sarimax_attached.pkl.gz", "rb") as f:
             models['sarima'] = pickle.load(f)
         st.sidebar.success("✅ SARIMA loaded")
-    except:
+    except Exception as e:
         models['sarima'] = None
-        st.sidebar.warning("⚠️ SARIMA not loaded")
+        st.sidebar.warning(f"⚠️ SARIMA not loaded: {e}")
     
+    # Prophet
     try:
         with open("prophet_model.pkl", "rb") as f:
             models['prophet'] = pickle.load(f)
@@ -66,22 +71,22 @@ def predict_aqi(models, pm25, no, no2):
     # XGBoost
     preds['XGBoost'] = models['xgb'].predict(input_df)[0] if models['xgb'] else None
     
-    # SARIMA (forecast one step ahead with fallback)
+    # SARIMAX with exogenous input
     if models['sarima']:
         try:
-            preds['SARIMA'] = models['sarima'].get_forecast(steps=1).predicted_mean.iloc[0]
-        except:
-            try:
-                preds['SARIMA'] = models['sarima'].fittedvalues.iloc[-1]
-            except:
-                preds['SARIMA'] = None
+            preds['SARIMA'] = models['sarima'].get_forecast(steps=1, exog=input_df).predicted_mean.iloc[0]
+        except Exception as e:
+            preds['SARIMA'] = None
     else:
         preds['SARIMA'] = None
 
     # Prophet (forecast next timestamp)
     if models['prophet']:
         future = pd.DataFrame({'ds': [pd.Timestamp.today()]})
-        preds['Prophet'] = models['prophet'].predict(future)['yhat'].values[0]
+        try:
+            preds['Prophet'] = models['prophet'].predict(future)['yhat'].values[0]
+        except:
+            preds['Prophet'] = None
     else:
         preds['Prophet'] = None
     
